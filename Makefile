@@ -1,7 +1,4 @@
-# ========================
 # Makefile - Proyecto 13
-# Sprint 1
-# ========================
 
 # Variables
 SRC=src/main.sh
