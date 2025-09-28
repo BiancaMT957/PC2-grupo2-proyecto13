@@ -138,3 +138,138 @@ Caso 2: **exito**, establecemos la siguiente configuracion `URL="https://httpbin
 2025-09-25 23:04:16 Inicio de evaluación: URL=https://httpbin.org/status/200, MAX_RETRIES=3, BACKOFF_MS=400ms, JITTER=20%
 2025-09-25 23:04:17 Intento 1: HTTP=200 (timeout=3s)
 ```
+
+
+
+
+## Métricas exportadas
+Al finalizar:
+- Calcula la **latencia total** (`LATENCY_MS`) y el número real de **reintentos** realizados.
+- Escribe una línea en `out/metricas.csv` con: endpoint latencia_ms reintentos estado_final
+**Contenido de cada columna:**
+
+- **endpoint**: URL objetivo utilizada en la prueba.  
+- **latencia_ms**: tiempo total transcurrido desde el inicio de la primera petición (`START_MS`) hasta el final del proceso (`END_MS`), expresado en milisegundos. Esta métrica refleja el impacto de los reintentos y permite evaluar el costo temporal de la estrategia de backoff.  
+- **reintentos**: número real de intentos adicionales realizados antes de obtener una respuesta satisfactoria o de agotar el máximo permitido (`MAX_RETRIES`). Un valor alto puede indicar un endpoint poco confiable.  
+- **estado_final**: resultado global de la ejecución:
+  - `OK` → se alcanzó una respuesta exitosa dentro de los reintentos permitidos.
+  - `FAIL` → se agotaron los reintentos sin obtener éxito.
+
+Cada nueva ejecución del script agrega una línea al CSV, lo que permite ir construyendo un **histórico de pruebas**.  
+Este histórico puede exportarse a otras herramientas (por ejemplo, para graficar en hojas de cálculo) y sirve de base para:
+- **Analizar tendencias de disponibilidad** de distintos endpoints a lo largo del tiempo.
+- **Detectar falsos positivos** en escenarios de alta variabilidad de red.
+- Evaluar el **rendimiento de la política de backoff** (impacto de los parámetros `BACKOFF_MS` y `JITTER_PCT`).
+
+El código de salida del script complementa estas métricas:
+- `0` → reintento exitoso.
+- `1` → fallo tras agotar reintentos.
+
+---
+#### Ejecución
+
+Para las buenas prácticas:
+
+```
+make run
+```
+
+
+#### Evidencias 
+
+En la consola:
+
+```
+bianca007@MSI:/mnt/c/Users/Bianca/Documents/PC2-grupo2-proyecto13$ make run
+==> Ejecutando flujo principal...
+```
+
+
+
+Dentro de `log-intentos.txt` :
+
+2025-09-27 10:54:25 Inicio de evaluación: URL=http://localhost:8080, MAX_RETRIES=3, BACKOFF_MS=500ms, JITTER=20%
+2025-09-27 10:54:25 Intento 1: HTTP=500 (timeout=3s)
+2025-09-27 10:54:25 Reintento programado en 444 ms (±20%). Durmiendo 0.444s…
+2025-09-27 10:54:25 Intento 2: HTTP=200 (timeout=3s)
+2025-09-27 10:54:25 Éxito en intento 2.
+
+
+
+
+
+Dentro de `out/metricas.csv`:
+
+```
+endpoint	latencia_ms	reintentos	estado_final
+http://localhost:9999	3698	3	FAIL
+http://localhost:8080	706	1	OK
+```
+
+### **Pruebas automatizadas: `tests/test_reintentos.bats`**
+
+Se utilizó **Bats (Bash Automated Testing System)** bajo el enfoque **AAA/RGR** (*Arrange-Act-Assert / Red-Green-Refactor*).
+
+#### Casos de prueba
+
+- **Caso rojo: endpoint que siempre falla**  
+- Ejecuta `src/main.sh` apuntando a un puerto cerrado (`http://localhost:9999`).  
+- Se espera que el script termine con un código distinto de `0`.  
+- Demuestra el comportamiento ante fallos permanentes.
+
+- **Caso verde: endpoint que falla una vez y luego responde**  
+- Lanza un pequeño servidor Python “flaky” que:
+  1. En el primer request devuelve HTTP 500 (falla simulada).
+  2. En el segundo request responde HTTP 200 con “OK”.
+- El script debe **reintentar automáticamente** y finalizar con código `0`.
+
+---
+
+### **Integración con Makefile**
+
+Se añadió un target `test`:
+
+```make
+test:
+  @echo "==> Ejecutando pruebas con Bats..."
+  @set -o pipefail; bats -r $(TEST_DIR) --formatter pretty | tee out/test-result-s1.log
+```
+
+#### Ejecucion:
+
+```
+make test
+```
+
+#### Evidencias
+Se crea un archivo dentro de out/log-intentos.txt con las siguientes descripciones y se ve que los 2 tests efectivamente pasan:
+
+```
+test_reintentos.bats
+   Caso rojo: endpoint que siempre falla                                1/2
+ ✓ Caso rojo: endpoint que siempre falla
+   Caso verde: endpoint falla 1 vez y luego responde                  2/2
+ ✓ Caso verde: endpoint falla 1 vez y luego responde
+
+2 tests, 0 failures
+```
+
+
+
+
+En la consola:
+
+
+```
+bianca007@MSI:/mnt/c/Users/Bianca/Documents/PC2-grupo2-proyecto13$ make test
+==> Ejecutando pruebas con Bats...
+test_reintentos.bats
+ ✓ Caso rojo: endpoint que siempre falla
+ ✓ Caso verde: endpoint falla 1 vez y luego responde
+
+2 tests, 0 failures
+```
+
+
+
+
