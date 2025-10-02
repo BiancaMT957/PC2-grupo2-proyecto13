@@ -29,13 +29,12 @@ build:
 
 run:
 	@echo "==> Ejecutando flujo principal..."
-	@bash $(SRC) || { echo "Ejecución falló"; exit 1; }
-
+	@bash $(SRC)
 
 test:
 	@echo "==> Ejecutando pruebas con Bats..."
 
-	@set -o pipefail; bats -r $(TEST_DIR) --formatter pretty | tee out/test-result-s1.log
+	@set -o pipefail; bats -r $(TEST_DIR) --formatter pretty | tee out/test-result-s2.log
 	
 
 
