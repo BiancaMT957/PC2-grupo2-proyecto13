@@ -72,14 +72,20 @@ esac
 # Metricas
 metricas(){
   local file="$OUT_DIR/metricas.csv"
-  [[ -f "$file" ]] || echo -e "method\tendpoint\tlatencia_ms\treintentos\testado_final" > "$file"
-  echo -e "$METHOD\t$URL\t$LATENCY_MS\t$RETRIES\t$STATE" >> "$file"
+  if [[ ! -f "$file" ]]; then
+    printf "method\tendpoint\tlatencia_ms\treintentos\testado_final\n" > "$file"
+  fi
+  printf "%s\t%s\t%s\t%s\t%s\n" \
+    "$METHOD" "$URL" "$LATENCY_MS" "$RETRIES" "$STATE" >> "$file"
 }
 
 fallos(){
   local file="$OUT_DIR/fallos.csv"
-  [[ -f "$file" ]] || echo -e "method\tendpoint\tmotivo_fallo\thttp_code\tcurl_exit" > "$file"
-  echo -e "$METHOD\t$URL\t$REASON\t$HTTP_CODE\t$CURL_EXIT" >> "$file"
+  if [[ ! -f "$file" ]]; then
+    printf "method\tendpoint\tmotivo_fallo\thttp_code\tcurl_exit\n" > "$file"
+  fi
+  printf "%s\t%s\t%s\t%s\t%s\n" \
+    "$METHOD" "$URL" "$REASON" "${HTTP_CODE:-000}" "${CURL_EXIT:-0}" >> "$file"
 }
 
 # Clasificacion de errores.
@@ -125,7 +131,7 @@ for attempt in $(seq 1 $((MAX_RETRIES + 1))); do
   HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -X "$METHOD" --max-time "$TIMEOUT_S" "$URL")"
   CURL_EXIT=$?   # captura código de salida real de curl
   set -e   # vuelve a activar "exit on error"
-  log "Intento ${attempt}: HTTP=$HTTP_CODE (timeout=${TIMEOUT_S}s)"
+  log "Intento ${attempt}: HTTP=$HTTP_CODE (curl_exit=$CURL_EXIT, timeout=${TIMEOUT_S}s)"
 
   if echo "$HTTP_CODE" | grep -q '^2..$'; then
     success=1
