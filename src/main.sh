@@ -38,8 +38,11 @@ calc_delay_ms(){
     fi
 }
 
-mkdir -p "$OUT_DIR"
-: > "$LOG_FILE"
+# Funcion que verifica la existencia del directorio.
+check_dir(){
+  local dir="$1"
+  mkdir -p "$dir"
+}
 
 log() {
   printf "%s %s\n" "$(now)" "$*" | tee -a "$LOG_FILE" >/dev/null
@@ -66,17 +69,71 @@ case "$METHOD" in
     ;;
 esac
 
+# Metricas
+metricas(){
+  local file="$OUT_DIR/metricas.csv"
+  if [[ ! -f "$file" ]]; then
+    printf "method\tendpoint\tlatencia_ms\treintentos\testado_final\n" > "$file"
+  fi
+  printf "%s\t%s\t%s\t%s\t%s\n" \
+    "$METHOD" "$URL" "$LATENCY_MS" "$RETRIES" "$STATE" >> "$file"
+}
+
+fallos(){
+  local file="$OUT_DIR/fallos.csv"
+  if [[ ! -f "$file" ]]; then
+    printf "method\tendpoint\tmotivo_fallo\thttp_code\tcurl_exit\n" > "$file"
+  fi
+  printf "%s\t%s\t%s\t%s\t%s\n" \
+    "$METHOD" "$URL" "$REASON" "${HTTP_CODE:-000}" "${CURL_EXIT:-0}" >> "$file"
+}
+
+# Clasificacion de errores.
+motivos() {
+  # usa HTTP_CODE y CURL_EXIT del entorno
+  if [[ "${CURL_EXIT:-0}" -ne 0 ]]; then
+    case "$CURL_EXIT" in
+      6)  REASON="dns_error" ;;
+      7)  REASON="connect_error" ;;
+      28) REASON="timeout" ;;
+      35) REASON="ssl_error" ;;
+      *)  REASON="net_error" ;;
+    esac
+    FINAL_EXIT=2; return
+  fi
+
+  if [[ "${HTTP_CODE:-000}" == 2?? ]]; then
+    REASON="ok"; FINAL_EXIT=0; return
+  fi
+
+  case "${HTTP_CODE:-000}" in
+    5??) REASON="http_5xx"; FINAL_EXIT=4 ;;
+    4??) REASON="http_4xx"; FINAL_EXIT=4 ;;
+    3??) REASON="http_3xx"; FINAL_EXIT=4 ;; # si no sigues -L
+    [0-9][0-9][0-9]) REASON="http_other"; FINAL_EXIT=4 ;;
+    *) REASON="net_error"; FINAL_EXIT=2 ;;
+  esac
+}
+
+
 # -------- Flujo principal con métricas --------
-START_MS=$(date +%s%3N)
-success=0
+check_dir "$OUT_DIR"    # Verificamos la exitencia del directorio out
+check_dir "$(dirname "$LOG_FILE")"
 
 log "Inicio de evaluación: METHOD=$METHOD, URL=$URL, MAX_RETRIES=$MAX_RETRIES, BACKOFF_MS=${BACKOFF_MS}ms, JITTER=${JITTER_PCT}%"
+START_MS=$(date +%s%3N)
+success=0
+HTTP_CODE=000
+CURL_EXIT=0
 
 for attempt in $(seq 1 $((MAX_RETRIES + 1))); do
-  http_code="$(curl -sS -o /dev/null -w '%{http_code}' -X "$METHOD" --max-time "$TIMEOUT_S" "$URL" || echo '000')"
-  log "Intento ${attempt}: HTTP=$http_code (timeout=${TIMEOUT_S}s)"
+  set +e   # desactiva "exit on error" temporalmente
+  HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' -X "$METHOD" --max-time "$TIMEOUT_S" "$URL")"
+  CURL_EXIT=$?   # captura código de salida real de curl
+  set -e   # vuelve a activar "exit on error"
+  log "Intento ${attempt}: HTTP=$HTTP_CODE (curl_exit=$CURL_EXIT, timeout=${TIMEOUT_S}s)"
 
-  if echo "$http_code" | grep -q '^2..$'; then
+  if echo "$HTTP_CODE" | grep -q '^2..$'; then
     success=1
     break
   fi
@@ -106,15 +163,13 @@ END_MS=$(date +%s%3N)
 # -------- Métricas --------
 LATENCY_MS=$((END_MS - START_MS))
 RETRIES=$((attempt - 1))
-STATE="FAIL"
-[[ $success -eq 1 ]] && STATE="OK"
+STATE="FAIL"; [[ $success -eq 1 ]] && STATE="OK"
 
-METRICS_FILE="$OUT_DIR/metricas.csv"
-if [[ ! -f "$METRICS_FILE" ]]; then
-    echo -e "method\tendpoint\tlatencia_ms\treintentos\testado_final" > "$METRICS_FILE"
+metricas
+if [[ $success -eq 1 ]]; then
+  exit 0
+else
+  motivos         # setea REASON y FINAL_EXIT
+  fallos           # usa REASON/HTTP_CODE/CURL_EXIT
+  exit "$FINAL_EXIT"
 fi
-echo -e "$METHOD\t$URL\t$LATENCY_MS\t$RETRIES\t$STATE" >> "$METRICS_FILE"
-
-[[ $success -eq 1 ]] && exit 0 || exit 1
-
-
