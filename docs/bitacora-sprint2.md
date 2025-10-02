@@ -113,7 +113,7 @@ bianca007@MSI:/mnt/c/Users/Bianca/Documents/PC2-grupo2-proyecto13$ ./src/main.sh
 2025-09-30 11:38:30 Intento 4: HTTP=411 (timeout=3s)
 2025-09-30 11:38:30 Fallo final: agotados 4 intentos.
 
-## Sprint 2: Manejo de fallos y codigos de salida diferenciados.
+## Issue 6: Manejo de fallos y codigos de salida diferenciados.
 
 ### 1. Descripcion
 En esta issue se solicitaba implementar el manejo de fallos en las llamadas HTTP del script, con clasificacion de los errores y con codigos de salida diferenciados.
@@ -173,4 +173,79 @@ GET	http://10.255.255.1	timeout	000	28
 GET	http://no-existe-este-host.invalid	dns_error	000	6
 GET	http://httpbin.org/status/500	http_5xx	500	0
 GET	http://httpbin.org/status/404	http_4xx	404	0
+```
+
+## Issue 7: Pruebas Bats extendidas
+
+### 1. Descripcion
+Implementa y estabiliza una suite de pruebas Bats que cubra casos positivos y negativos del CLI(`src/main.sh`) con backoff y jitter, politica de metodos HTTP, registro de metricas y fallos en TSV.
+
+### 2. Alcance y criterios de aceptacion
+- Caso positivo: GET con fallo inicial, luego exito tras reintento.
+- Caso negativo: POST duplicado, falla sin reintentos (salvo flag `--allow-post-retries`).
+- Caso negativo: timeout, se registra como error de red.
+- Caso negativo: HTTP 500, se registra como error HTTP.
+- Se imprimen los registros en:
+  - `out/test-result-s2.log` : resultado de suite.
+- Entregable:
+  - `tests/test_metodos.bats` : valida GET/PUT/POST.
+  - `test/test_fallos.bats` : validar HTTP 500 y timeout.
+
+### 3. Implementacion de `test_metodos.bats`
+GET: falla (500) y luego (200)
+- Servidor local "flip" en `127.0.0.1:18080` (1era peticion=500, 2da peticion=200).
+- Ejecuta: `./src/main.sh GET http://127.0.0.1:18080` con `MAX_RETRIES=2`.
+
+POST: sin flag, sin reintentos.
+- Servidor `always500` en `127.0.0.1.18081`.
+- Ejecuta: `./src/main.sh POST http://127.0.0.1:18081` (sin flag).
+
+POST: con `--allow-post-retries`, reintenta.
+- Servidor "flip" en `127.0.0.1:18082`.
+- Ejecuta: `./src/main.sh POST http://127.0.0.1.18082 --allow-post-retries`. 
+> Cada caso usa puerto dedicado (18080/18081/18082) para evitar "Address already in use".
+
+### 4. Implementacion de `test_fallos.bats`
+TIMEOUT: 
+- Servidor local que duerme 5s y luego responde 200 en `127.0.0.1:18090`.
+- Ejecuta: `./src/main.sh GET http://127.0.0.1:18090` con `TIMEOUT_S=1` y `MAX_RETRIES=0`.
+HTTP (500):
+- Servidor `always500` en `127.0.0.1:18091`.
+- Ejecutar: `./src/main.sh GET http://127.0.0.1:18091` con `MAX_RETRIES=0`.
+
+### 5. Ejecucion
+Mostraremos la salida de consola de `make help`.
+```bash
+luis@LAPTOP-LC:/mnt/c/Users/Luis/Documents/PC2-grupo2-proyecto13$ make test
+==> Ejecutando pruebas con Bats...
+test_fallos.bats
+ ✓ Timeout: debe registrarse como 'timeout' (net) y salir con 2
+ ✓ HTTP 500: debe registrarse como http_5xx y salir con 4
+test_metodos.bats
+ ✓ GET: falla primero (500), luego éxito tras reintento
+ ✓ POST: por defecto NO reintenta (siempre 500) y falla
+ ✓ POST: con --allow-post-retries reintenta y puede tener éxito
+test_reintentos.bats
+ ✓ Caso rojo: endpoint que siempre falla
+ ✓ Caso verde: endpoint falla 1 vez y luego responde
+
+7 tests, 0 failures
+```
+Se observa la realizacion exitosa de la pruebas bats.
+
+Ahora veremos los registros de estas pruebas en `out/test-result-s2.log`.
+```bash
+[34;1mtest_fallos.bats
+[0m[1G   Timeout: debe registrarse como 'timeout' (net) y salir con 2[K[144G1/7[2G[1G ✓ Timeout: debe registrarse como 'timeout' (net) y salir con 2[K
+[0m[1G   HTTP 500: debe registrarse como http_5xx y salir con 4[K[144G2/7[2G[1G ✓ HTTP 500: debe registrarse como http_5xx y salir con 4[K
+[0m[34;1mtest_metodos.bats
+[0m[1G   GET: falla primero (500), luego éxito tras reintento[K[144G3/7[2G[1G ✓ GET: falla primero (500), luego éxito tras reintento[K
+[0m[1G   POST: por defecto NO reintenta (siempre 500) y falla[K[144G4/7[2G[1G ✓ POST: por defecto NO reintenta (siempre 500) y falla[K
+[0m[1G   POST: con --allow-post-retries reintenta y puede tener éxito[K[144G5/7[2G[1G ✓ POST: con --allow-post-retries reintenta y puede tener éxito[K
+[0m[34;1mtest_reintentos.bats
+[0m[1G   Caso rojo: endpoint que siempre falla[K[144G6/7[2G[1G ✓ Caso rojo: endpoint que siempre falla[K
+[0m[1G   Caso verde: endpoint falla 1 vez y luego responde[K[144G7/7[2G[1G ✓ Caso verde: endpoint falla 1 vez y luego responde[K
+[0m[32;1m
+7 tests, 0 failures
+[0m
 ```
