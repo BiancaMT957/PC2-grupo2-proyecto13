@@ -113,6 +113,64 @@ bianca007@MSI:/mnt/c/Users/Bianca/Documents/PC2-grupo2-proyecto13$ ./src/main.sh
 2025-09-30 11:38:30 Intento 4: HTTP=411 (timeout=3s)
 2025-09-30 11:38:30 Fallo final: agotados 4 intentos.
 
+## Sprint 2: Manejo de fallos y codigos de salida diferenciados.
 
+### 1. Descripcion
+En esta issue se solicitaba implementar el manejo de fallos en las llamadas HTTP del script, con clasificacion de los errores y con codigos de salida diferenciados.
+- Exito (2xx) : salida 0
+- Fallo de red/timeout : salida 2
+- Fallo HTTP (3xx, 4xx, 5xx) : salida 4
 
+Ademas, se debe generar el archivo fallos.csv dentro del directorio `out/`, con los siguientes encabezados: codigo HTPP, codigo curl, motivo del fallo.
 
+### 2. Implementacion en `src/main.sh`
+
+Se añadieron las funciones auxiliares:
+- `motivos()` : nos da el motivo de fallo. Lo clasifica segun el `HTPP_CODE` (que nos brinda los codigos de error HTTP) y `CURL_EXIT` (nos da el valor de curl, 28 en caso de timeout), luego asigna `REASON` con el motivo de fallo y `FINAL_EXIT` con el codigo de salida diferenciado (0, 2, 4).
+- `fallos()` : crea el archivo `out/fallos.csv` si no esta creado, e imprime dentro los encabezados y cuerpo.
+```sql
+method  endpoint  motivo_fallo  http_code curl_exit
+GET	http://localhost:9999	connect_error	000	7
+```
+- Flujo principal:
+  - Si los intentos fallan, se invoca a `motivos`, para determinar el motivo (`REASON`) y el codigo de salida (`FINAL_EXIT`).
+  - Se registra la fila correspondiente en `fallos.csv`.
+  - Se finaliza el script con el codigo de salida 2 o 4 segun corresponda.
+
+### 3. Ejecucion
+Ejemplos de salida del proyecto:
+- Fallo por timeout, simula un host inexistente en red interna, registra `timeout` en `fallos.csv`.
+```bash
+luis@LAPTOP-LC:/mnt/c/Users/Luis/Documents/PC2-grupo2-proyecto13$ URL=http://10.255.255.1 TIMEOUT_S=2 MAX_RETRIES=0 make run
+==> Ejecutando flujo principal...
+curl: (28) Connection timed out after 2003 milliseconds
+make: *** [Makefile:32: run] Error 2
+```
+- Fallo de red (DNS invalido), el DNS falla al resolverse, registra `dns_error` en `fallos.csv`.
+```bash
+uis@LAPTOP-LC:/mnt/c/Users/Luis/Documents/PC2-grupo2-proyecto13$ URL=http://no-existe-este-host.invalid MAX_RETRIES=0 make run
+==> Ejecutando flujo principal...
+curl: (6) Could not resolve host: no-existe-este-host.invalid
+make: *** [Makefile:32: run] Error 2
+```
+- Fallo HTTP 500, servicio que responde siempre 500. Devuelve error `4` y registra como motivo `http_5xx` en `fallos.csv`.
+```bash
+luis@LAPTOP-LC:/mnt/c/Users/Luis/Documents/PC2-grupo2-proyecto13$ URL=http://httpbin.org/status/500 MAX_RETRIES=0 make run
+==> Ejecutando flujo principal...
+make: *** [Makefile:32: run] Error 4
+```
+- Fallo HTTP 404, servicio responde 404, y registra como motivo `http_4xx` en `fallos.csv`.
+```bash
+luis@LAPTOP-LC:/mnt/c/Users/Luis/Documents/PC2-grupo2-proyecto13$ URL=http://httpbin.org/status/404 MAX_RETRIES=0 make run
+==> Ejecutando flujo principal...
+make: *** [Makefile:32: run] Error 4
+```
+### 4. Registro de fallos en `fallos.csv`
+Ahora veamos las salidas en el archivo `fallos.csv`:
+```bash
+method	endpoint	motivo_fallo	http_code	curl_exit
+GET	http://10.255.255.1	timeout	000	28
+GET	http://no-existe-este-host.invalid	dns_error	000	6
+GET	http://httpbin.org/status/500	http_5xx	500	0
+GET	http://httpbin.org/status/404	http_4xx	404	0
+```
