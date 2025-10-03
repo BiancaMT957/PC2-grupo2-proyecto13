@@ -210,3 +210,87 @@ Esto permite que el tag aparezca en la sección Tags / Releases del repositorio 
 ### 4. Conclusion del Issue
 - Versionado formal del proyecto, empaquetado reproducible.
 - Garantizamos la autenticidad del release, usando el tag firmado por el autor.
+
+
+
+
+
+## Bitácora y contrato de salidas
+Documentar los pasos realizados durante la ejecución de pruebas con reintentos y fallos de red, incluyendo comandos ejecutados, resultados observados y análisis de falsos positivos.
+
+---
+
+### Ejecución de pruebas
+
+#### 1. Pruebas sobre endpoints válidos
+```bash
+./src/main.sh GET https://example.com
+./src/main.sh PUT https://example.com/resource
+./src/main.sh POST https://example.com
+./src/main.sh POST https://example.com --allow-post-retries
+```
+
+
+#### 2. Resultados registrados en metricas.csv:
+
+GET   https://example.com              2889   0   OK
+PUT   https://example.com/resource    13340   3   FAIL
+POST  https://example.com              2679   0   FAIL
+POST  https://example.com             12780   3   FAIL
+
+#### 3. Pruebas sobre endpoints con fallo de red
+
+URL=http://10.255.255.1 TIMEOUT_S=2 MAX_RETRIES=0 make run
+URL=http://no-existe-este-host.invalid MAX_RETRIES=0 make run
+URL=http://httpbin.org/status/500 MAX_RETRIES=0 make run
+URL=http://httpbin.org/status/404 MAX_RETRIES=0 make run
+
+
+#### 4.Resultados registrados en fallos.csv:
+
+GET http://10.255.255.1              timeout    000   28
+GET http://no-existe-este-host.invalid dns_error 000   6
+GET http://httpbin.org/status/500    http_5xx   500   0
+GET http://httpbin.org/status/404    http_4xx   404   0
+
+
+Comandos de validación
+
+Buscar errores:
+
+
+```
+grep FAIL out/metricas-final.csv
+```
+
+
+
+Calcular promedio de latencias:
+
+
+
+```
+awk -F, '{sum+=$3; n++} END {print "Promedio:", sum/n}' out/metricas-final.csv
+```
+
+
+
+#### Análisis de falsos positivos
+
+* Note que algunos intentos iniciales fallaron, pero el estado final fue exitoso (ejemplo: GET a example.com : OK en el intento final).
+
+* Esto genera falsos positivos si se cuenta todos los intentos.
+
+* Decisión: en el CSV final solo se registra estado_final, no los intermedios.
+
+#### Conclusiones
+
+En este proyecto se ejecutaron pruebas en escenarios de éxito, reintentos y fallos reales.
+
+Los resultados quedaron trazados en out/metricas-final.csv y out/fallos.csv.
+
+El sistema maneja tanto reintentos controlados como errores de red.
+
+
+
+
