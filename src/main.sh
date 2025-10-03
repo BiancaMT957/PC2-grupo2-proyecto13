@@ -115,6 +115,32 @@ motivos() {
   esac
 }
 
+# --------  Consolidación de métricas --------
+consolidar_metricas() { 
+  local final="$OUT_DIR/metricas-final.csv"  
+  {  
+    # Cabecera tabulada
+    printf "method\tendpoint\tlatencia_ms\tintentos\testado_final\tmotivo_fallo\thttp_code\tcurl_exit\n"
+
+    # Métricas
+    if [[ -f "$OUT_DIR/metricas.csv" ]]; then
+      awk -F'\t' 'NR>1 {
+        motivo = ($5=="OK" ? "" : ($1=="PUT" ? "http_5xx" : ($1=="POST" ? "http_4xx" : "")));
+        code   = ($5=="OK" ? 200 : (motivo=="http_5xx" ? 500 : (motivo=="http_4xx" ? 404 : 0)));
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",$1,$2,$3,$4,$5,motivo,code,0
+      }' "$OUT_DIR/metricas.csv"
+    fi
+
+    # Fallos
+    if [[ -f "$OUT_DIR/fallos.csv" ]]; then
+      awk -F'\t' 'NR>1 {
+        printf "%s\t%s\t\t\tFAIL\t%s\t%s\t%s\n",$1,$2,$3,$4,$5
+      }' "$OUT_DIR/fallos.csv"
+    fi
+  } > "$final"
+  log "Consolidado generado en $final"
+}
+
 
 # -------- Flujo principal con métricas --------
 check_dir "$OUT_DIR"    # Verificamos la exitencia del directorio out
@@ -170,6 +196,7 @@ if [[ $success -eq 1 ]]; then
   exit 0
 else
   motivos         # setea REASON y FINAL_EXIT
-  fallos           # usa REASON/HTTP_CODE/CURL_EXIT
+  fallos          # usa REASON/HTTP_CODE/CURL_EXIT
+  consolidar_metricas
   exit "$FINAL_EXIT"
 fi
