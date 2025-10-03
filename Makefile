@@ -3,12 +3,15 @@
 SHELL := /usr/bin/env bash
 
 # Variables
+VERSION ?= 1.0.0
+NAME = proyecto13
 SRC=src/main.sh
 OUT_DIR=out
 DIST_DIR=dist
 TEST_DIR ?= tests
+PKG = $(DIST_DIR)/$(NAME)-v$(VERSION).tar.gz
 
-.PHONY: tools build run test clean help
+.PHONY: tools build run pack test clean help
 
 
 tools:
@@ -30,6 +33,14 @@ build:
 run:
 	@echo "==> Ejecutando flujo principal..."
 	@bash $(SRC)
+
+pack: clean build
+	@echo "==> Empaquetando version $(VERSION)..."
+	tar --sort=name --mtime="2025-01-01 00:00Z" --owner=0 --group=0 --numeric-owner -czf $(PKG) Makefile src tests docs
+	sha256sum $(PKG) | tee $(OUT_DIR)/sha256-$(NAME)-v$(VERSION).txt
+	@echo "Paquete generado: $(PKG)"
+	@echo "Hash reproducible en: $(OUT_DIR)/sha256-$(NAME)-v$(VERSION).txt"
+
 
 test:
 	@echo "==> Ejecutando pruebas con Bats..."
