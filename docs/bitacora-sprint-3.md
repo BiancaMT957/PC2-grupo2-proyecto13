@@ -135,3 +135,78 @@ GET	https://httpbin.org/status/	35015	5	FAIL
 GET	https://httpbin.org/status/	12734	3	FAIL
 GET	https://example.com	1567	0	OK
 ```
+
+## Issue 9: Empaquetado reproducible y tagging de release
+### 1. Descripcion
+Se implementa un mecanismo de empaquetado reproducible del proyecto, de modo que el archivo generado sea identico en distintas maquinas (mismo hash). Ademas, se implementa la creacion de un tag firmado en git para versionar releases.
+
+### 2. Implementacion en Makefile
+Se añade el target `pack` en el `Makefile`, con la siguiente logica:
+- Dependencias: ejecuta `clean` y `build` antes de emparquetar.
+- Paquete final: genera `dist/proyecto13-vX.Y.Z.tar.gz`.
+- Configuracion `tar` para reproducibilidad:
+  - `--sort=name` : ordena los archivos.
+  - `--mtime="2025-01-01 00:00Z"` : fija fecha de modificacion (para que el codigo hash no varie por este indicador).
+  - `--owner=0 --group=0 --numeric-owner` : neutraliza diferencias de usuario/sistemas.
+
+Codigo agregado:
+```bash
+# Añadimos las variables
+VERSION ?= 1.0.0
+NAME = proyecto13
+PKG = $(DIST_DIR)/$(NAME)-v$(VERSION).tar.gz
+
+# Añadimos pack al .PHONY
+
+# Creamos el target pack con dependencia a clean y build
+pack: clean build
+	@echo "==> Empaquetando version $(VERSION)..."
+	tar --sort=name --mtime="2025-01-01 00:00Z" --owner=0 --group=0 --numeric-owner -czf $(PKG) Makefile src tests docs
+	sha256sum $(PKG) | tee $(OUT_DIR)/sha256-$(NAME)-v$(VERSION).txt
+	@echo "Paquete generado: $(PKG)"
+	@echo "Hash reproducible en: $(OUT_DIR)/sha256-$(NAME)-v$(VERSION).txt"
+```
+
+### 3. Ejecucion
+Ejecutamos `make test` con la siguiente salida:
+```bash
+luis@LAPTOP-LC:/mnt/c/Users/Luis/Documents/PC2-grupo2-proyecto13$ make pack
+==> Limpiando...
+rm -rf out dist
+Limpieza completada.
+==> Preparando directorios...
+mkdir -p out dist
+Build completado.
+Evidencia generada en: out/build.log
+==> Empaquetando version 1.0.0...
+tar --sort=name --mtime="2025-01-01 00:00Z" --owner=0 --group=0 --numeric-owner -czf dist/proyecto13-v1.0.0.tar.gz Makefile src tests docs
+sha256sum dist/proyecto13-v1.0.0.tar.gz | tee out/sha256-proyecto13-v1.0.0.txt
+1c96f65672c4c403e7f1fce75f8d3369592ac3cc936dbd580d3a1f474266423c  dist/proyecto13-v1.0.0.tar.gz
+Paquete generado: dist/proyecto13-v1.0.0.tar.gz
+Hash reproducible en: out/sha256-proyecto13-v1.0.0.txt
+```
+Notamos la correcta ejecucion de las dependencias, y la generacion el codigo hash del archivo. Al volver a ejecutar obtenemos el mismo codigo hash, con lo cual queda comprobada la reproducibilidad.
+
+### Tagging del realese
+Se necesitaba marcar la version del proyecto mediante un tag en git, asociado al commit final que contiene el empaquetado reproducible. El tag se firmara con GPG (-s) y subido al repositorio remoto para que quede disponible en GitHub.
+
+### Flujo realizado
+- Primero subimos los archivos modificados con `git add` y su respectivo commit. Y lo enviamos al repositorio remoto.
+```bash
+git add <archivos-modificados>
+git commit -m "Implementa empaquetado reproducible"
+git push origin develop
+```
+- Localmente creamos el tag, firmado sobre el commit más reciente.
+```bash
+git tag -s v1.0.0 -m "Release v1.0.0: empaquetado reproducible"
+```
+- Finalmente, subimos el tag al remoto.
+```bash
+git push origin v1.0.0
+```
+Esto permite que el tag aparezca en la sección Tags / Releases del repositorio remoto.
+
+### 4. Conclusion del Issue
+- Versionado formal del proyecto, empaquetado reproducible.
+- Garantizamos la autenticidad del release, usando el tag firmado por el autor.
